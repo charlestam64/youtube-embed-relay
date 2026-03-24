@@ -14,6 +14,7 @@
     }
 
     .video-wrapper {
+      position: relative;
       width: 100%;
       max-width: 100vw;
       aspect-ratio: 16 / 9;
@@ -23,8 +24,7 @@
     /* Fallback for older browsers */
     @supports not (aspect-ratio: 16 / 9) {
       .video-wrapper {
-        position: relative;
-        padding-top: 56.25%; /* 16:9 */
+        padding-top: 56.25%;
       }
 
       .video-wrapper iframe {
@@ -40,6 +40,36 @@
       border: 0;
       display: block;
     }
+
+    /* YouTube-like replay button */
+    .replay-btn {
+      position: absolute;
+      bottom: 12px;
+      left: 12px;
+      z-index: 10;
+      display: none; /* hidden by default */
+      align-items: center;
+      gap: 6px;
+      background: rgba(0,0,0,0.6);
+      color: #fff;
+      border: none;
+      padding: 6px 10px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      backdrop-filter: blur(4px);
+    }
+
+    .replay-btn:hover {
+      background: rgba(0,0,0,0.8);
+    }
+
+    .replay-icon {
+      width: 16px;
+      height: 16px;
+      display: inline-block;
+    }
   </style>
 </head>
 
@@ -52,21 +82,48 @@
       allowfullscreen
       referrerpolicy="strict-origin-when-cross-origin"
     ></iframe>
+
+    <button class="replay-btn" id="replayBtn">
+      <svg class="replay-icon" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6a6 6 0 11-6-6z" />
+      </svg>
+      Replay
+    </button>
   </div>
 
 <script>
   const u = new URL(location.href);
 
   const v = u.searchParams.get('v');
-  const start = u.searchParams.get('start');
-  const end = u.searchParams.get('end');
+  const start = parseInt(u.searchParams.get('start') || '0', 10);
+  const end = parseInt(u.searchParams.get('end') || '0', 10);
   const clip = u.searchParams.get('clip');
   const clipt = u.searchParams.get('clipt');
+
+  let player;
+  let endWatcher = null;
+
+  function loadYouTubeAPI() {
+    return new Promise(resolve => {
+      if (window.YT && window.YT.Player) return resolve();
+      const tag = document.createElement('script');
+      tag.src = "https://www.youtube.com/iframe_api";
+      window.onYouTubeIframeAPIReady = resolve;
+      document.head.appendChild(tag);
+    });
+  }
+
+  function showReplay() {
+    document.getElementById('replayBtn').style.display = 'flex';
+  }
+
+  function hideReplay() {
+    document.getElementById('replayBtn').style.display = 'none';
+  }
 
   if (!v) {
     document.body.textContent = 'Missing ?v=VIDEO_ID';
   } else {
-
     const base = 'https://www.youtube.com/embed/' + encodeURIComponent(v);
 
     const params = new URLSearchParams({
@@ -85,7 +142,48 @@
       if (end) params.set('end', end);
     }
 
-    document.getElementById('player').src = `${base}?${params}`;
+    const iframe = document.getElementById('player');
+    iframe.src = `${base}?${params}`;
+
+    loadYouTubeAPI().then(() => {
+      player = new YT.Player('player', {
+        events: {
+          onReady: () => {
+            if (start) player.seekTo(start);
+          },
+          onStateChange: (event) => {
+            if (event.data === YT.PlayerState.PLAYING) {
+              hideReplay();
+              if (end) startEndWatcher();
+            }
+          }
+        }
+      });
+    });
+
+    function startEndWatcher() {
+      if (endWatcher) clearInterval(endWatcher);
+
+      endWatcher = setInterval(() => {
+        if (!player || typeof player.getCurrentTime !== 'function') return;
+
+        const current = player.getCurrentTime();
+
+        if (end && current >= end) {
+          player.pauseVideo();
+          showReplay();
+          clearInterval(endWatcher);
+        }
+      }, 200);
+    }
+
+    document.getElementById('replayBtn').addEventListener('click', () => {
+      if (!player) return;
+      hideReplay();
+      player.seekTo(start || 0);
+      player.playVideo();
+      if (end) startEndWatcher();
+    });
   }
 </script>
 
